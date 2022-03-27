@@ -11,7 +11,7 @@ from typing import Any, Dict, Tuple
 
 import pygame
 from pygame.constants import (K_ESCAPE, K_LEFT, K_RIGHT, K_UP, KEYDOWN, KEYUP,
-                              QUIT)
+                              QUIT, K_KP_ENTER, K_RETURN)
 
 from mytools import SpriteContainer, Timer
 
@@ -30,6 +30,9 @@ class Settings:
     d_angle = 22.5
     max_big_rocks = 5
     rock_intervall = 300
+    bullet_ttl = 5000
+    max_bullets = 10
+    bullet_min_speed = 3
 
     @staticmethod
     def get_dim() -> Tuple[int, int]:
@@ -159,6 +162,8 @@ class Ship(pygame.sprite.Sprite):
             self._rotate(kwargs["direction"])
         if "mode" in kwargs.keys():
             self._set_mode(kwargs["mode"])
+        if "shoot" in kwargs.keys():
+            self.shoot()
         if "go" in kwargs.keys():
             if kwargs["go"]:
                 self.image = self.images[self.imageindex]
@@ -179,6 +184,10 @@ class Ship(pygame.sprite.Sprite):
                     self.rect.top = Settings.playground.height
                 if self.rect.top > Settings.playground.height:
                     self.rect.bottom = 0
+    
+    def shoot(self):
+        if len(game._bullets) < Settings.max_bullets:
+            game._bullets.add(Bullet(self._angle, (self.speed_x, self.speed_y), self.rect.center))
 
     def draw(self, surface: pygame.surface.Surface) -> None:
         """Blits the image on the surface.
@@ -188,7 +197,55 @@ class Ship(pygame.sprite.Sprite):
         """
         surface.blit(self.image, self.rect)
 
+class Bullet(pygame.sprite.Sprite):
+    """Bullet sprite class"""
 
+    def __init__(self, angle, speed, pos) -> None:
+        super().__init__()
+
+        self.angle = angle
+        self.speed = self.calculate_speed(speed)
+        self.pos = pos
+        self.life_timer = Timer(Settings.bullet_ttl, False)
+        self.image = Game.Sprite_container.get_sprites("bullets")[2]
+        self.image = pygame.transform.scale(self.image, (15, 15))
+        self.rect = self.image.get_rect()
+        self.mask = pygame.mask.from_surface(self.image)
+        self.image = pygame.transform.rotate(self.image, self.angle)
+        self.rect.center = self.pos
+    
+    def calculate_speed(self, speed):
+        new_speed = { 'x': 0, 'y': 0 }
+        angle = radians(self.angle)
+
+        new_speed['x'] = speed[0] - sin(angle)
+        new_speed['y'] = speed[1] - cos(angle)
+
+        if new_speed['x'] > 0 and new_speed['x'] < Settings.bullet_min_speed:
+            new_speed['x'] = Settings.bullet_min_speed
+
+        elif new_speed['x'] < 0 and new_speed['x'] > -Settings.bullet_min_speed:
+            new_speed['x'] = -Settings.bullet_min_speed
+
+        if new_speed['y'] > 0 and new_speed['y'] < Settings.bullet_min_speed:
+            new_speed['y'] = Settings.bullet_min_speed
+
+        elif new_speed['y'] < 0 and new_speed['y'] > -Settings.bullet_min_speed:
+            new_speed['y'] = -Settings.bullet_min_speed
+
+        return new_speed
+    
+    def update(self):
+        if self.life_timer.is_next_stop_reached():
+            self.kill()
+        self.move()
+    
+    def move(self):
+        self.rect.move_ip(self.speed['x'], self.speed['y'])
+    
+    def draw(self, screen):
+        screen.blit(self.image, self.rect)
+    
 class Rock(pygame.sprite.Sprite):
     """Rock sprite class"""
 
@@ -269,9 +326,10 @@ class Game:
         Game.Sprite_container = SpriteContainer(
             Settings.get_file("sprites.json"), Settings.get_image("spritesheet.bmp"), (0, 0, 0)
         )
-        self._background = pygame.sprite.GroupSingle(Background("background_black.png"))
+        self._background = pygame.sprite.GroupSingle(Background("background_blue.png"))
         self._ship = Ship()
         self._all_rocks = pygame.sprite.Group()
+        self._bullets = pygame.sprite.Group()
         self._timer_rock = Timer(Settings.rock_intervall, True)
         self._running = True
 
@@ -289,6 +347,10 @@ class Game:
                     self._ship.update(direction=1)
                 elif event.key == K_RIGHT:
                     self._ship.update(direction=-1)
+                elif event.key == K_KP_ENTER:
+                    self._ship.update(shoot=True)
+                elif event.key == K_RETURN:
+                    self._ship.update(shoot=True)
             elif event.type == KEYUP:
                 if event.key == K_UP:
                     self._ship.update(mode=0)
@@ -298,6 +360,7 @@ class Game:
         self._background.draw(self._screen)
         self._ship.draw(self._screen)
         self._all_rocks.draw(self._screen)
+        self._bullets.draw(self._screen)
         pygame.display.flip()
 
     def update(self) -> None:
@@ -311,6 +374,7 @@ class Game:
         if self._running:
             self._ship.update(go=True)
             self._all_rocks.update(action="go")
+            self._bullets.update()
 
     def run(self) -> None:
         """Starting point and main loop of the game."""
@@ -323,12 +387,7 @@ class Game:
 
         pygame.quit()
 
-
-def main():
+if __name__ == "__main__":
     os.environ["SDL_VIDEO_WINDOW_POS"] = "10, 30"
     game = Game()
     game.run()
-
-
-if __name__ == "__main__":
-    main()
