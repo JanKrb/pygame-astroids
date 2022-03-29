@@ -79,7 +79,7 @@ class Settings:
         return os.path.join(Settings.path["sound"], filename)
 
 
-class Background(pygame.sprite.Sprite):
+class Background(pygame.sprite.DirtySprite):
     """Sprite class with nearly no function for drawing the background image."""
 
     def __init__(self, filename: str = "background.png") -> None:
@@ -92,9 +92,12 @@ class Background(pygame.sprite.Sprite):
         self.image = pygame.image.load(Settings.get_image(filename)).convert()
         self.image = pygame.transform.scale(self.image, Settings.get_dim())
         self.rect = self.image.get_rect()
+        self.dirty = 1
+    
+    def draw(self, screen):
+        screen.blit(self.image, (0, 0))
 
-
-class Ship(pygame.sprite.Sprite):
+class Ship(pygame.sprite.DirtySprite):
     """Ship sprite class."""
 
     def __init__(self) -> None:
@@ -112,6 +115,8 @@ class Ship(pygame.sprite.Sprite):
         self._angle = 0
         self.speed_x = 0
         self.speed_y = 0
+
+        self.dirty = 1
 
     def get_angle(self) -> float:
         """Converts the angle from grad to radiant.
@@ -132,6 +137,7 @@ class Ship(pygame.sprite.Sprite):
             self.images = Game.Sprite_container.get_sprites("ships_flying")
         elif mode == 1:
             self.images = Game.Sprite_container.get_sprites("ships_acc")
+        self.dirty = 1
 
     def _rotate(self, direction: int) -> None:
         """Shifts the angle of the ship.
@@ -147,6 +153,7 @@ class Ship(pygame.sprite.Sprite):
         self.imageindex %= len(self.images)
         self.image = self.images[self.imageindex]
         self.mask = pygame.mask.from_surface(self.image)
+        self.dirty = 1
 
     def update(self, *args: Any, **kwargs: Any) -> None:
         """Main update function of the sprite.
@@ -184,6 +191,7 @@ class Ship(pygame.sprite.Sprite):
                     self.rect.top = Settings.playground.height
                 if self.rect.top > Settings.playground.height:
                     self.rect.bottom = 0
+                self.dirty = 1
     
     def shoot(self):
         if len(game._bullets) < Settings.max_bullets:
@@ -197,7 +205,7 @@ class Ship(pygame.sprite.Sprite):
         """
         surface.blit(self.image, self.rect)
 
-class Bullet(pygame.sprite.Sprite):
+class Bullet(pygame.sprite.DirtySprite):
     """Bullet sprite class"""
 
     def __init__(self, angle, speed, pos) -> None:
@@ -213,6 +221,8 @@ class Bullet(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.image)
         self.image = pygame.transform.rotate(self.image, self.angle)
         self.rect.center = self.pos
+
+        self.dirty = 1
     
     def calculate_speed(self, speed):
         new_speed = { 'x': 0, 'y': 0 }
@@ -242,11 +252,12 @@ class Bullet(pygame.sprite.Sprite):
     
     def move(self):
         self.rect.move_ip(self.speed['x'], self.speed['y'])
+        self.dirty = 1
     
     def draw(self, screen):
         screen.blit(self.image, self.rect)
     
-class Rock(pygame.sprite.Sprite):
+class Rock(pygame.sprite.DirtySprite):
     """Rock sprite class"""
 
     def __init__(self, size : str ="big") -> None:
@@ -281,10 +292,13 @@ class Rock(pygame.sprite.Sprite):
         self.speed_y = self.speed * cos(angle)
         self.newpos()
 
+        self.dirty = 1
+
     def newpos(self) -> None:
         """Defines a new ramdom position"""
         self.rect.left = randint(self.rect.width + 5, Settings.playground.width - self.rect.width - 5)
         self.rect.top = randint(self.rect.height + 5, Settings.playground.height - self.rect.height - 5)
+        self.dirty = 1
 
     def update(self, *args: Any, **kwargs: Any) -> None:
         """Main update function of the sprite.
@@ -307,6 +321,7 @@ class Rock(pygame.sprite.Sprite):
                     self.rect.top = Settings.playground.height
                 if self.rect.top > Settings.playground.height:
                     self.rect.bottom = 0
+                self.dirty = 1
             if kwargs["action"] == "newpos":
                 self.newpos()
 
@@ -326,12 +341,16 @@ class Game:
         Game.Sprite_container = SpriteContainer(
             Settings.get_file("sprites.json"), Settings.get_image("spritesheet.bmp"), (0, 0, 0)
         )
-        self._background = pygame.sprite.GroupSingle(Background("background_blue.png"))
-        self._ship = Ship()
-        self._all_rocks = pygame.sprite.Group()
-        self._bullets = pygame.sprite.Group()
+        self._background = Background("background_blue.png")
+        self._ship = pygame.sprite.LayeredDirty(Ship())
+        self._all_rocks = pygame.sprite.LayeredDirty()
+        self._bullets = pygame.sprite.LayeredDirty()
         self._timer_rock = Timer(Settings.rock_intervall, True)
         self._running = True
+
+        self._ship.clear(self._screen, self._background.image)
+        self._all_rocks.clear(self._screen, self._background.image)
+        self._bullets.clear(self._screen, self._background.image)
 
     def watch_for_events(self) -> None:
         """Looking for any type of event and poke a reaction."""
@@ -342,37 +361,40 @@ class Game:
                 if event.key == K_ESCAPE:
                     self._running = False
                 elif event.key == K_UP:
-                    self._ship.update(mode=1)
+                    self._ship.sprites()[0].update(mode=1)
                 elif event.key == K_LEFT:
-                    self._ship.update(direction=1)
+                    self._ship.sprites()[0].update(direction=1)
                 elif event.key == K_RIGHT:
-                    self._ship.update(direction=-1)
+                    self._ship.sprites()[0].update(direction=-1)
                 elif event.key == K_KP_ENTER:
-                    self._ship.update(shoot=True)
+                    self._ship.sprites()[0].update(shoot=True)
                 elif event.key == K_RETURN:
-                    self._ship.update(shoot=True)
+                    self._ship.sprites()[0].update(shoot=True)
             elif event.type == KEYUP:
                 if event.key == K_UP:
-                    self._ship.update(mode=0)
+                    self._ship.sprites()[0].update(mode=0)
 
     def draw(self) -> None:
         """Draws all sprite on the screen."""
         self._background.draw(self._screen)
-        self._ship.draw(self._screen)
-        self._all_rocks.draw(self._screen)
-        self._bullets.draw(self._screen)
-        pygame.display.flip()
+        ship_rects = self._ship.draw(self._screen)
+        rock_rects = self._all_rocks.draw(self._screen)
+        bullet_rects = self._bullets.draw(self._screen)
+
+        rects = ship_rects + rock_rects + bullet_rects
+
+        pygame.display.update(rects)
 
     def update(self) -> None:
         """This method is responsible for the main game logic."""
         if self._timer_rock.is_next_stop_reached():
             if len(self._all_rocks) < Settings.max_big_rocks:
                 rock = Rock("big")
-                while pygame.sprite.collide_rect(rock, self._ship):
+                while pygame.sprite.collide_rect(rock, self._ship.sprites()[0]):
                     rock.update(action="newpos")
                 self._all_rocks.add(rock)
         if self._running:
-            self._ship.update(go=True)
+            self._ship.sprites()[0].update(go=True)
             self._all_rocks.update(action="go")
             self._bullets.update()
 
